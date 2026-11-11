@@ -43,7 +43,6 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 jni = "0.21"
 # Samme winit som eframe bruker; trengs for typen AndroidApp i android_main.
 winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
-ndk-context = "0.1"
 android_logger = "0.15"
 
 [dev-dependencies]

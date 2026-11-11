@@ -114,15 +114,28 @@ mod imp {
     use std::sync::Mutex;
 
     pub static DATA_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+    /// JavaVM og aktiviteten (globale JNI-referanser fra android-activity), satt i android_main.
+    /// ndk_context peker på Application, ikke aktiviteten, så den kan ikke brukes her.
+    static ACTIVITY: Mutex<Option<(usize, usize)>> = Mutex::new(None);
+
+    pub fn set_activity(vm: *mut std::ffi::c_void, activity: *mut std::ffi::c_void) {
+        if let Ok(mut a) = ACTIVITY.lock() {
+            *a = Some((vm as usize, activity as usize));
+        }
+    }
 
     /// Kall en metode på aktiviteten (MainActivity.java).
     fn call_activity(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<()>) {
-        let ctx = ndk_context::android_context();
-        // SAFETY: android-activity setter ndk_context til prosessens JavaVM og aktiviteten.
-        let Ok(vm) = (unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }) else { return };
+        let Some((vm, activity)) = ACTIVITY.lock().ok().and_then(|a| *a) else {
+            log::error!("JNI: aktiviteten er ikke kjent ennå");
+            return;
+        };
+        // SAFETY: pekeren er prosessens JavaVM fra AndroidApp::vm_as_ptr.
+        let Ok(vm) = (unsafe { jni::JavaVM::from_raw(vm as *mut jni::sys::JavaVM) }) else { return };
         let Ok(mut env) = vm.attach_current_thread() else { return };
-        // SAFETY: et globalt referanse-objekt til aktiviteten som lever like lenge som appen.
-        let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+        // SAFETY: global referanse til aktiviteten (AndroidApp::activity_as_ptr), gyldig så lenge
+        // appen kjører. JObject har ingen Drop, så referansen frigis ikke her.
+        let activity = unsafe { JObject::from_raw(activity as jni::sys::jobject) };
         if let Err(e) = f(&mut env, &activity) {
             let detail = describe_exception(&mut env);
             log::error!("JNI-kall feilet: {e}: {detail}");
@@ -228,4 +241,4 @@ mod imp {
 pub use imp::{data_dir, leave, pick_file, save_pdf, set_light_bars};
 
 #[cfg(target_os = "android")]
-pub use imp::DATA_DIR;
+pub use imp::{DATA_DIR, set_activity};

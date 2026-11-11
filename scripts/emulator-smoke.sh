@@ -59,6 +59,37 @@ sleep 6
 alive "rotasjon"
 shot 4-liggende
 adb shell settings put system user_rotation 0 || true
+sleep 4
+
+resumed() { adb shell dumpsys activity activities | grep -m1 -E "mResumedActivity|topResumedActivity" || true; }
+
+# 5. «Åpne» øverst til venstre skal vise Androids filvelger (JNI-kall fra Rust til Java).
+DENS=$(adb shell wm density | sed -n 's/.*: \([0-9]*\).*/\1/p' | tail -1)
+PPP=$(awk "BEGIN { print $DENS / 160 }")
+TOP=$(adb logcat -d -s CadViewer:I | sed -n 's/.*insets [0-9]*,\([0-9]*\),.*/\1/p' | tail -1)
+X=$(awk "BEGIN { printf \"%d\", 40 * $PPP }")
+Y=$(awk "BEGIN { printf \"%d\", ${TOP:-0} + 30 * $PPP }")
+adb shell input tap "$X" "$Y"
+sleep 4
+shot 5-filvelger
+echo "Etter «Åpne»: $(resumed)"
+if ! resumed | grep -q -i "documentsui"; then
+  echo "::error::Filvelgeren ble ikke åpnet"
+  FILVELGER_FEIL=1
+fi
+adb shell input keyevent 4
+sleep 3
+alive "tilbake fra filvelgeren"
+
+# 6. Tilbake-knappen i appen legger den i bakgrunnen (moveTaskToBack), uten å avslutte.
+adb shell input keyevent 4
+sleep 3
+echo "Etter tilbake: $(resumed)"
+alive "tilbake-knappen"
+if resumed | grep -q "$PKG"; then
+  echo "::error::Tilbake-knappen la ikke appen i bakgrunnen"
+  TILBAKE_FEIL=1
+fi
 
 adb logcat -d > "$OUT/logcat.txt" || true
 PID=$(adb shell pidof "$PKG" | tr -d '\r')
@@ -70,7 +101,7 @@ adb shell ls -la /data/anr 2>/dev/null | tail -5 || true
 
 # Nedskalerte skjermbilder i loggen, så de kan ses uten å laste ned artefakter
 # (dekod med: base64 -d > bilde.png).
-for f in 1-start 2-dwg 3-gester 4-liggende; do
+for f in 1-start 2-dwg 3-gester 4-liggende 5-filvelger; do
   if command -v convert > /dev/null; then
     convert "$OUT/$f.png" -resize 270x "$OUT/$f-liten.png"
     echo "SKJERMBILDE $f: $(base64 -w0 "$OUT/$f-liten.png")"
@@ -94,5 +125,7 @@ fi
 if grep -q "JNI-kall feilet" "$OUT/logcat.txt"; then
   echo "::error::Et JNI-kall feilet"; fail=1
 fi
+[ -z "${FILVELGER_FEIL:-}" ] || fail=1
+[ -z "${TILBAKE_FEIL:-}" ] || fail=1
 [ "$fail" = 0 ] || exit 1
 echo "Røyktest OK"

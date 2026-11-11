@@ -368,7 +368,6 @@ dependencies = [
  "env_logger",
  "jni 0.21.1",
  "log",
- "ndk-context",
  "rfd",
  "tiny-skia",
  "winit",
