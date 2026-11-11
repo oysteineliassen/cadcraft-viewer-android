@@ -124,21 +124,43 @@ mod imp {
         }
     }
 
-    /// Kall en metode på aktiviteten (MainActivity.java).
-    fn call_activity(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<()>) {
-        let Some((vm, activity)) = ACTIVITY.lock().ok().and_then(|a| *a) else {
-            log::error!("JNI: aktiviteten er ikke kjent ennå");
-            return;
-        };
+    type JniCall = Box<dyn FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<()> + Send>;
+
+    /// Kø til JNI-tråden. Kall til Java gjøres aldri fra egui-tråden: den behandler
+    /// livssyklus-hendelser som Androids UI-tråd venter på, så et JNI-kall som venter på
+    /// UI-tråden der, gir vranglås (ANR). JNI-tråden kan vente uten å stoppe appen.
+    static JNI_QUEUE: Mutex<Option<std::sync::mpsc::Sender<JniCall>>> = Mutex::new(None);
+
+    fn jni_worker(rx: std::sync::mpsc::Receiver<JniCall>) {
+        let Some((vm, activity)) = ACTIVITY.lock().ok().and_then(|a| *a) else { return };
         // SAFETY: pekeren er prosessens JavaVM fra AndroidApp::vm_as_ptr.
         let Ok(vm) = (unsafe { jni::JavaVM::from_raw(vm as *mut jni::sys::JavaVM) }) else { return };
-        let Ok(mut env) = vm.attach_current_thread() else { return };
+        // Tråden er festet til JVM-en så lenge den lever.
+        let Ok(mut env) = vm.attach_current_thread_permanently() else { return };
         // SAFETY: global referanse til aktiviteten (AndroidApp::activity_as_ptr), gyldig så lenge
         // appen kjører. JObject har ingen Drop, så referansen frigis ikke her.
         let activity = unsafe { JObject::from_raw(activity as jni::sys::jobject) };
-        if let Err(e) = f(&mut env, &activity) {
-            let detail = describe_exception(&mut env);
-            log::error!("JNI-kall feilet: {e}: {detail}");
+        while let Ok(call) = rx.recv() {
+            if let Err(e) = env.with_local_frame(16, |env| call(env, &activity)) {
+                let detail = describe_exception(&mut env);
+                log::error!("JNI-kall feilet: {e}: {detail}");
+            }
+        }
+    }
+
+    /// Kall en metode på aktiviteten (MainActivity.java) fra JNI-tråden.
+    fn call_activity(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<()> + Send + 'static) {
+        let Ok(mut q) = JNI_QUEUE.lock() else { return };
+        if q.is_none() {
+            let (tx, rx) = std::sync::mpsc::channel::<JniCall>();
+            if std::thread::Builder::new().name("jni".into()).spawn(move || jni_worker(rx)).is_err() {
+                log::error!("JNI: kunne ikke starte tråd");
+                return;
+            }
+            *q = Some(tx);
+        }
+        if let Some(tx) = q.as_ref() {
+            let _ = tx.send(Box::new(f));
         }
     }
 
@@ -174,7 +196,7 @@ mod imp {
             push(Event::Message(format!("Kunne ikke skrive PDF: {e}")));
             return;
         }
-        call_activity(|env, a| {
+        call_activity(move |env, a| {
             let p = env.new_string(path.to_string_lossy())?;
             let n = env.new_string(&name)?;
             env.call_method(a, "savePdf", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&p), JValue::Object(&n)])
@@ -193,7 +215,7 @@ mod imp {
 
     /// Mørke ikoner i status-/navigasjonslinjen på lys bakgrunn, lyse på mørk.
     pub fn set_light_bars(light: bool) {
-        call_activity(|env, a| env.call_method(a, "setLightBars", "(Z)V", &[JValue::Bool(u8::from(light))]).map(|_| ()));
+        call_activity(move |env, a| env.call_method(a, "setLightBars", "(Z)V", &[JValue::Bool(u8::from(light))]).map(|_| ()));
     }
 
     fn string(env: &mut JNIEnv, s: &JString) -> String {

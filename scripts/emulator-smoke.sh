@@ -97,7 +97,18 @@ echo "--- appens logg (pid $PID) ---"
 adb logcat -d --pid="$PID" | grep -v -E "AppsFilter|InputDispatcher|GraphicsEnvironment|ziparchive|CompatibilityChange" | tail -100 || true
 echo "--- system om appen (ANR, krasj) ---"
 grep -E "ANR in|Application Not Responding|AndroidRuntime|FATAL|am_anr|Input dispatching timed out|$PKG.*(died|crash)" "$OUT/logcat.txt" | tail -30 || true
-adb shell ls -la /data/anr 2>/dev/null | tail -5 || true
+# Ved ANR: stakkene til UI-tråden og appens egne tråder (krever adb root, går på emulator).
+if grep -q "ANR in $PKG" "$OUT/logcat.txt"; then
+  adb root > /dev/null 2>&1 || true
+  sleep 2
+  f=$(adb shell ls -t /data/anr 2>/dev/null | tr -d '\r' | head -1)
+  if [ -n "$f" ]; then
+    adb shell cat "/data/anr/$f" > "$OUT/anr.txt" || true
+    echo "--- ANR-stakker ($f) ---"
+    awk '/^"/{show = ($0 ~ /^"main"|"jni"|"raster"|"display-list"|"load"/ || $0 ~ /cadviewer/)} /^$/{if (show) print ""; show=0} show' "$OUT/anr.txt" | head -150
+    grep -n -E "android_main|cadcraft|egui|eframe|winit" "$OUT/anr.txt" | head -40 || true
+  fi
+fi
 
 # Nedskalerte skjermbilder i loggen, så de kan ses uten å laste ned artefakter
 # (dekod med: base64 -d > bilde.png).
