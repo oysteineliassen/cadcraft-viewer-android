@@ -107,7 +107,10 @@ impl ViewerApp {
                     log::info!("åpner «{name}» ({})", path.display());
                     self.open(ctx, path, name);
                 }
-                Event::Message(m) => self.toast(m),
+                Event::Message(m) => {
+                    log::info!("melding: {m}");
+                    self.toast(m);
+                }
             }
         }
         if let State::Loading { rx, name, .. } = &self.state
@@ -192,7 +195,7 @@ impl ViewerApp {
                         platform::pick_file();
                     }
                     ui.add_space(16.0);
-                    ui.label(RichText::new("Du kan også åpne en .dwg- eller .dxf-fil fra filbehandleren, e-post eller Google Disk og velge «Åpne med» → CAD-viser.").weak());
+                    ui.label(RichText::new("Du kan også åpne en .dwg- eller .dxf-fil fra filbehandleren, e-post eller Google Disk og velge «Åpne med» og CAD-viser.").weak());
                 });
             }
             State::Loading { name, since, .. } => {

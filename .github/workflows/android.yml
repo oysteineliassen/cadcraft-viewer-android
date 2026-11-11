@@ -114,6 +114,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: ImageMagick (nedskalerte skjermbilder i loggen)
+        run: sudo apt-get install -y --no-install-recommends imagemagick > /dev/null
+
       - name: Kjør røyktest
         uses: reactivecircus/android-emulator-runner@v2
         with:

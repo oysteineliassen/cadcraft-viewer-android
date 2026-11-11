@@ -124,10 +124,27 @@ mod imp {
         // SAFETY: et globalt referanse-objekt til aktiviteten som lever like lenge som appen.
         let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
         if let Err(e) = f(&mut env, &activity) {
-            log::error!("JNI-kall feilet: {e}");
-            let _ = env.exception_describe();
-            let _ = env.exception_clear();
+            let detail = describe_exception(&mut env);
+            log::error!("JNI-kall feilet: {e}: {detail}");
         }
+    }
+
+    /// Teksten til en ventende Java-exception (og fjern den).
+    fn describe_exception(env: &mut JNIEnv) -> String {
+        let Ok(ex) = env.exception_occurred() else { return String::new() };
+        if ex.is_null() {
+            return String::new();
+        }
+        let _ = env.exception_clear();
+        let text = env
+            .call_method(&ex, "toString", "()Ljava/lang/String;", &[])
+            .and_then(|v| v.l())
+            .map(JString::from)
+            .ok()
+            .and_then(|s| env.get_string(&s).ok().map(String::from))
+            .unwrap_or_default();
+        let _ = env.exception_clear();
+        text
     }
 
     pub fn pick_file() {

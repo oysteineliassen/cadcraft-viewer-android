@@ -40,6 +40,8 @@ adb shell am start -W -a android.intent.action.VIEW \
 sleep 12
 alive "åpning av DWG"
 shot 2-dwg
+echo "--- cache/open ---"
+adb shell run-as "$PKG" ls -la cache/open || true
 
 # 3. Dobbelttrykk midt på skjermen (vis hele tegningen) og en sveip (panorering).
 read -r W H < <(adb shell wm size | sed -n 's/.*: \([0-9]*\)x\([0-9]*\).*/\1 \2/p' | tail -1)
@@ -59,18 +61,32 @@ shot 4-liggende
 adb shell settings put system user_rotation 0 || true
 
 adb logcat -d > "$OUT/logcat.txt" || true
-if grep -E "panicked|FATAL EXCEPTION|SIGSEGV|SIGABRT" "$OUT/logcat.txt" | grep -i -E "cadviewer|cadcraft|$PKG"; then
-  echo "::error::Panikk eller krasj i logcat"
-  exit 1
-fi
-echo "--- appens logg ---"
-adb logcat -d -s cadviewer:V RustStdoutStderr:V | tail -40 || true
-# Nedskalert skjermbilde i loggen, så det kan ses uten å laste ned artefakter
+PID=$(adb shell pidof "$PKG" | tr -d '\r')
+echo "--- appens logg (pid $PID) ---"
+adb logcat -d --pid="$PID" | grep -v -E "AppsFilter|InputDispatcher" | tail -80 || true
+
+# Nedskalerte skjermbilder i loggen, så de kan ses uten å laste ned artefakter
 # (dekod med: base64 -d > bilde.png).
-for f in 2-dwg 3-gester; do
+for f in 1-start 2-dwg 3-gester 4-liggende; do
   if command -v convert > /dev/null; then
-    convert "$OUT/$f.png" -resize 300x "$OUT/$f-liten.png"
+    convert "$OUT/$f.png" -resize 270x "$OUT/$f-liten.png"
     echo "SKJERMBILDE $f: $(base64 -w0 "$OUT/$f-liten.png")"
   fi
 done
+
+fail=0
+if grep -A3 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $PKG" \
+   || grep -E "panicked|SIGSEGV|SIGABRT" "$OUT/logcat.txt" | grep -q -i -E "cadviewer|cadcraft|$PKG"; then
+  echo "::error::Panikk eller krasj i logcat"; fail=1
+fi
+if ! grep -q "lest «apartment-layout.dwg»" "$OUT/logcat.txt"; then
+  echo "::error::Tegningen ble ikke lest"; fail=1
+fi
+if ! grep -q -E "bilde [0-9]+x[0-9]+ tegnet" "$OUT/logcat.txt"; then
+  echo "::error::Tegningen ble ikke tegnet"; fail=1
+fi
+if grep -q "JNI-kall feilet" "$OUT/logcat.txt"; then
+  echo "::error::Et JNI-kall feilet"; fail=1
+fi
+[ "$fail" = 0 ] || exit 1
 echo "Røyktest OK"
