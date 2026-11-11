@@ -93,3 +93,40 @@ jobs:
           name: CAD-viser-release-apk
           path: out/CAD-viser-0.1.*[0-9].apk
           retention-days: 30
+
+  # Røyktest på Android-emulator (x86_64): installerer debug-APK-en, åpner en DWG via
+  # «Åpne med», prøver gester og rotasjon, og laster opp skjermbilder og logcat.
+  emulator:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: CAD-viser-debug-apk
+          path: apk
+
+      - name: Slå på KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Kjør røyktest
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: scripts/emulator-smoke.sh "$(ls apk/*-debug.apk | head -1)" smoke
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: roeyktest-skjermbilder
+          path: smoke/
+          retention-days: 14
