@@ -262,7 +262,8 @@ impl ViewerApp {
                     }
                 }
             });
-            if o.doc.drawing.layers.len() > 12 {
+            // Søk bare på desktop: NativeActivity viser ikke skjermtastaturet av seg selv.
+            if cfg!(not(target_os = "android")) && o.doc.drawing.layers.len() > 12 {
                 ui.add(egui::TextEdit::singleline(&mut self.layer_filter).hint_text("Søk etter lag").desired_width(f32::INFINITY));
             }
             ui.separator();
@@ -618,6 +619,7 @@ fn gestures(ui: &egui::Ui, resp: &egui::Response, rect: egui::Rect, v: &mut View
 }
 
 fn style(ctx: &egui::Context, dark: bool) {
+    platform::set_light_bars(!dark);
     ctx.set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
     ctx.global_style_mut(|s| {
         use egui::{FontId, TextStyle};

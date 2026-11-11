@@ -101,6 +101,8 @@ mod imp {
 
     /// Tilbake-knappen når ingenting annet er åpent: ingenting å gjøre på desktop.
     pub fn leave() {}
+
+    pub fn set_light_bars(_light: bool) {}
 }
 
 #[cfg(target_os = "android")]
@@ -159,6 +161,11 @@ mod imp {
         call_activity(|env, a| env.call_method(a, "moveTaskToBack", "(Z)Z", &[JValue::Bool(1)]).map(|_| ()));
     }
 
+    /// Mørke ikoner i status-/navigasjonslinjen på lys bakgrunn, lyse på mørk.
+    pub fn set_light_bars(light: bool) {
+        call_activity(|env, a| env.call_method(a, "setLightBars", "(Z)V", &[JValue::Bool(u8::from(light))]).map(|_| ()));
+    }
+
     fn string(env: &mut JNIEnv, s: &JString) -> String {
         env.get_string(s).map(String::from).unwrap_or_default()
     }
@@ -201,7 +208,7 @@ mod imp {
     }
 }
 
-pub use imp::{data_dir, leave, pick_file, save_pdf};
+pub use imp::{data_dir, leave, pick_file, save_pdf, set_light_bars};
 
 #[cfg(target_os = "android")]
 pub use imp::DATA_DIR;

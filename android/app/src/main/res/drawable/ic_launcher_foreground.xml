@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Egentegnet ikon: en enkel plantegning (rom med dør) og en målelinje. 108x108, innhold i
+     den sikre sonen 18..90. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Yttervegger -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M30,32 L78,32 L78,72 L30,72 Z" />
+    <!-- Skillevegg med døråpning -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:pathData="M56,32 L56,48 M56,58 L56,72" />
+    <!-- Dørsving -->
+    <path
+        android:strokeColor="#3DDC84"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M56,48 L66,48 A10,10 0 0,1 56,58" />
+    <!-- Målelinje -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="2"
+        android:pathData="M30,80 L78,80 M30,77 L30,83 M78,77 L78,83" />
+</vector>
