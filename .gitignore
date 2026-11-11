@@ -1,0 +1,18 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+*.keystore
+*.jks
+!android/debug.keystore
+
+# Diverse
+.idea/
+*.iml
+.DS_Store

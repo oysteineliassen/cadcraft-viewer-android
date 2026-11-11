@@ -1,0 +1,70 @@
+[package]
+name = "cadcraft-viewer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Enkel, gratis og reklamefri DWG/DXF-viser for Android og desktop, bygget på CADCraft"
+publish = false
+
+[lib]
+name = "cadcraft_viewer"
+# cdylib: libcadcraft_viewer.so for Android. rlib: brukt av desktop-binæren.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "cadcraft-viewer"
+path = "src/main.rs"
+
+[dependencies]
+# CADCraft: kun lesing (io), dokumentmodell (doc), visningsliste + CPU-rasterisering (render).
+# Låst til en gjennomgått commit. Ingen engine/mcp/ui-egui.
+cadcraft-io = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+cadcraft-doc = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+cadcraft-render = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+cadcraft-geom = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+cadcraft-color = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+# Samme tiny-skia som cadcraft-render (Pixmap fra raster::render).
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+log = "0.4"
+# DWG-leser (MPL-2.0, brukt uendret via cadcraft-dwg). Låst til samme versjon som CADCraft
+# e5021f0: 0.6.7/0.6.8 leser enkelte skadede DWG-er som tomme uten varsel (CADCraft #800).
+acadrust = "=0.6.6"
+
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+rfd = "0.17"
+env_logger = { version = "0.11", default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "android-native-activity"] }
+jni = "0.21"
+ndk-context = "0.1"
+android_logger = "0.15"
+
+[dev-dependencies]
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 0
+strip = true
+
+# cadcraft-io drar inn craft-pdf (PDF-skriver). CADCraft låser craft-pdf sine PDF-backends via
+# [patch.crates-io] i sin rot-Cargo.toml, og patcher arves ikke av avhengige prosjekter. Derfor
+# kopiert hit, med samme craft-libs-revisjon som CADCraft e5021f0 bruker.
+# Bare krilla trengs: hayro-* brukes kun i CADCraft sine tester, og CADCraft sine egui/winit-
+# patcher trengs ikke fordi io/render/doc ikke avhenger av egui.
+[patch.crates-io]
+krilla = { version = "=0.8.2", git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
