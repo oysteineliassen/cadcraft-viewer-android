@@ -48,6 +48,7 @@ pub struct ViewerApp {
     exporting: Option<Receiver<ExportResult>>,
     toast: Option<(String, Instant)>,
     layer_filter: String,
+    first_frame_logged: bool,
 }
 
 impl ViewerApp {
@@ -63,6 +64,7 @@ impl ViewerApp {
             exporting: None,
             toast: None,
             layer_filter: String::new(),
+            first_frame_logged: false,
         };
         if let Some((path, name)) = open {
             app.open(&cc.egui_ctx, path, name);
@@ -528,6 +530,10 @@ impl Opened {
 impl eframe::App for ViewerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if !self.first_frame_logged {
+            self.first_frame_logged = true;
+            log::info!("første bilde, {:?} punkter, {} px/punkt", ctx.content_rect().size(), ctx.pixels_per_point());
+        }
         self.poll(&ctx);
         self.back(&ctx);
         // Filer dratt inn i vinduet (desktop).

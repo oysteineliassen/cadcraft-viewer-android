@@ -33,6 +33,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     {
         *d = Some(dir);
     }
+    log::info!("android_main startet");
     let options = eframe::NativeOptions { android_app: Some(app), ..Default::default() };
     if let Err(e) = eframe::run_native(APP_NAME, options, Box::new(|cc| Ok(Box::new(ViewerApp::new(cc, None))))) {
         log::error!("Appen stoppet: {e}");

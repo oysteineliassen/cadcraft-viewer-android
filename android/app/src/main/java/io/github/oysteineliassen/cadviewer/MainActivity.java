@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -35,6 +36,7 @@ public class MainActivity extends NativeActivity {
         System.loadLibrary("cadcraft_viewer");
     }
 
+    private static final String TAG = "CadViewer";
     private static final int REQUEST_OPEN = 1;
     private static final int REQUEST_SAVE_PDF = 2;
     /** Største fil som åpnes (byte). */
@@ -48,6 +50,7 @@ public class MainActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.i(TAG, "onCreate");
         super.onCreate(savedInstanceState);
         if (savedInstanceState != null) {
             pendingPdf = savedInstanceState.getString("pendingPdf");
@@ -64,6 +67,7 @@ public class MainActivity extends NativeActivity {
 
     @Override
     protected void onNewIntent(Intent intent) {
+        Log.i(TAG, "onNewIntent " + intent);
         super.onNewIntent(intent);
         setIntent(intent);
         handleIntent(intent);
@@ -98,6 +102,7 @@ public class MainActivity extends NativeActivity {
                 r = insets.getSystemWindowInsetRight();
                 b = insets.getSystemWindowInsetBottom();
             }
+            Log.i(TAG, "insets " + l + "," + t + "," + r + "," + b);
             nativeInsets(l, t, r, b);
             return v.onApplyWindowInsets(insets);
         });
@@ -106,6 +111,7 @@ public class MainActivity extends NativeActivity {
 
     /** Kalles fra Rust: mørke ikoner i systemlinjene på lys bakgrunn, lyse på mørk. */
     public void setLightBars(final boolean light) {
+        Log.i(TAG, "setLightBars " + light);
         runOnUiThread(() -> {
             Window w = getWindow();
             if (Build.VERSION.SDK_INT >= 30) {
@@ -133,6 +139,7 @@ public class MainActivity extends NativeActivity {
         } else if (Intent.ACTION_SEND.equals(action)) {
             uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
         }
+        Log.i(TAG, "handleIntent " + action + " " + uri);
         if (uri != null) {
             // Ikke åpne samme fil igjen når aktiviteten gjenskapes (f.eks. ved rotasjon).
             intent.setAction(Intent.ACTION_MAIN);
@@ -143,6 +150,7 @@ public class MainActivity extends NativeActivity {
 
     /** Kalles fra Rust: vis Androids filvelger. */
     public void openPicker() {
+        Log.i(TAG, "openPicker");
         runOnUiThread(() -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -222,9 +230,11 @@ public class MainActivity extends NativeActivity {
                 copy(in, out, MAX_BYTES);
             } catch (Exception e) {
                 target.delete();
+                Log.w(TAG, "kopiering feilet", e);
                 nativeMessage("Kunne ikke lese «" + name + "»: " + e.getMessage());
                 return;
             }
+            Log.i(TAG, "kopiert til " + target + " (" + target.length() + " byte)");
             nativeOpenFile(target.getAbsolutePath(), name);
         }, "kopier-fil").start();
     }

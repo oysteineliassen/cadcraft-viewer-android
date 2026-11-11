@@ -63,7 +63,10 @@ adb shell settings put system user_rotation 0 || true
 adb logcat -d > "$OUT/logcat.txt" || true
 PID=$(adb shell pidof "$PKG" | tr -d '\r')
 echo "--- appens logg (pid $PID) ---"
-adb logcat -d --pid="$PID" | grep -v -E "AppsFilter|InputDispatcher" | tail -80 || true
+adb logcat -d --pid="$PID" | grep -v -E "AppsFilter|InputDispatcher|GraphicsEnvironment|ziparchive|CompatibilityChange" | tail -100 || true
+echo "--- system om appen (ANR, krasj) ---"
+grep -E "ANR in|Application Not Responding|AndroidRuntime|FATAL|am_anr|Input dispatching timed out|$PKG.*(died|crash)" "$OUT/logcat.txt" | tail -30 || true
+adb shell ls -la /data/anr 2>/dev/null | tail -5 || true
 
 # Nedskalerte skjermbilder i loggen, så de kan ses uten å laste ned artefakter
 # (dekod med: base64 -d > bilde.png).
@@ -84,6 +87,9 @@ if ! grep -q "lest «apartment-layout.dwg»" "$OUT/logcat.txt"; then
 fi
 if ! grep -q -E "bilde [0-9]+x[0-9]+ tegnet" "$OUT/logcat.txt"; then
   echo "::error::Tegningen ble ikke tegnet"; fail=1
+fi
+if grep -q -E "ANR in $PKG|Input dispatching timed out.*$PKG" "$OUT/logcat.txt"; then
+  echo "::error::Appen svarte ikke (ANR)"; fail=1
 fi
 if grep -q "JNI-kall feilet" "$OUT/logcat.txt"; then
   echo "::error::Et JNI-kall feilet"; fail=1
