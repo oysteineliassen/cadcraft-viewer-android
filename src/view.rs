@@ -211,6 +211,7 @@ impl Viewer {
                     }
                 };
                 if !cancel.load(Ordering::Relaxed) {
+                    log::info!("visningsliste: {} primitiver, {:.3} px/enhet", list.prims.len(), used);
                     let _ = tx.send((id, used, list));
                     ctx.request_repaint();
                 }
@@ -348,7 +349,9 @@ fn raster_worker(rx: Receiver<RasterRequest>, tx: Sender<RasterResult>, ctx: egu
             req = newer;
         }
         let o = RasterOptions { background: req.background, ..RasterOptions::default() };
+        let t = Instant::now();
         let Some(pm) = cadcraft_render::raster::render(&req.list, &req.view, &o) else { continue };
+        log::info!("bilde {}x{} tegnet på {} ms", pm.width(), pm.height(), t.elapsed().as_millis());
         let size = [pm.width() as usize, pm.height() as usize];
         let image = egui::ColorImage::from_rgba_premultiplied(size, pm.data());
         if tx.send(RasterResult { id: req.id, image, world: req.view.world_bounds() }).is_err() {

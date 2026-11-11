@@ -103,7 +103,10 @@ impl ViewerApp {
     fn poll(&mut self, ctx: &egui::Context) {
         for e in platform::take() {
             match e {
-                Event::Open { path, name } => self.open(ctx, path, name),
+                Event::Open { path, name } => {
+                    log::info!("åpner «{name}» ({})", path.display());
+                    self.open(ctx, path, name);
+                }
                 Event::Message(m) => self.toast(m),
             }
         }
@@ -112,6 +115,13 @@ impl ViewerApp {
         {
             self.state = match r {
                 Ok(doc) => {
+                    log::info!(
+                        "lest «{}»: {} objekter i modellrommet, {} lag, rom: {:?}",
+                        doc.name,
+                        doc.drawing.model.len(),
+                        doc.drawing.layers.len(),
+                        doc.spaces.iter().map(Document::space_label).collect::<Vec<_>>()
+                    );
                     let mut viewer = Viewer::new(ctx);
                     viewer.rebuild(ctx, &doc.drawing, &doc.spaces[0], None);
                     let notes = doc.drawing.read_notes.len();
@@ -120,7 +130,10 @@ impl ViewerApp {
                     }
                     State::Open(Box::new(Opened { doc, space: 0, viewer }))
                 }
-                Err(error) => State::Failed { name: name.clone(), error },
+                Err(error) => {
+                    log::warn!("kunne ikke lese «{name}»: {error}");
+                    State::Failed { name: name.clone(), error }
+                }
             };
         }
         if let Some(rx) = &self.exporting
@@ -128,7 +141,10 @@ impl ViewerApp {
         {
             self.exporting = None;
             match r {
-                Ok((name, bytes)) => platform::save_pdf(name, bytes),
+                Ok((name, bytes)) => {
+                    log::info!("PDF «{name}»: {} byte", bytes.len());
+                    platform::save_pdf(name, bytes);
+                }
                 Err(e) => self.toast(e),
             }
         }

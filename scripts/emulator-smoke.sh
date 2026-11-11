@@ -63,5 +63,14 @@ if grep -E "panicked|FATAL EXCEPTION|SIGSEGV|SIGABRT" "$OUT/logcat.txt" | grep -
   echo "::error::Panikk eller krasj i logcat"
   exit 1
 fi
-grep -i "cadviewer" "$OUT/logcat.txt" | tail -40 || true
+echo "--- appens logg ---"
+adb logcat -d -s cadviewer:V RustStdoutStderr:V | tail -40 || true
+# Nedskalert skjermbilde i loggen, så det kan ses uten å laste ned artefakter
+# (dekod med: base64 -d > bilde.png).
+for f in 2-dwg 3-gester; do
+  if command -v convert > /dev/null; then
+    convert "$OUT/$f.png" -resize 300x "$OUT/$f-liten.png"
+    echo "SKJERMBILDE $f: $(base64 -w0 "$OUT/$f-liten.png")"
+  fi
+done
 echo "Røyktest OK"
