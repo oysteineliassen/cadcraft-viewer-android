@@ -10,7 +10,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # contents: write trengs for å publisere APK-en som release.
+  contents: write
 
 # Et nytt bygg på samme gren avbryter det forrige.
 concurrency:
@@ -80,6 +81,33 @@ jobs:
             cp android/app/build/outputs/apk/release/app-release.apk "out/CAD-viser-$v.apk"
           fi
           ls -la out
+
+      # Release med direkte nedlastingslenke (artefakter krever innlogging og kommer som zip).
+      # Fast filnavn, så denne lenken alltid gir nyeste versjon:
+      # https://github.com/<eier>/<repo>/releases/latest/download/CAD-viser.apk
+      - name: Klargjør release-filer
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p release
+          if [ -f "out/CAD-viser-0.1.${GITHUB_RUN_NUMBER}.apk" ]; then
+            cp "out/CAD-viser-0.1.${GITHUB_RUN_NUMBER}.apk" release/CAD-viser.apk
+          else
+            cp out/*-debug.apk release/CAD-viser.apk
+          fi
+
+      - name: Publiser som release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: CAD-viser 0.1.${{ github.run_number }}
+          make_latest: true
+          files: release/CAD-viser.apk
+          body: |
+            Last ned **CAD-viser.apk** under på telefonen og åpne den for å installere
+            (tillat installasjon fra nettleseren/filbehandleren hvis Android spør).
+            Nye versjoner installeres over den gamle.
 
       - uses: actions/upload-artifact@v4
         with:
