@@ -49,6 +49,10 @@ testdata/       eksempeltegninger (fra CADCraft) for tester
   - Når du zoomer langt inn, bygges visningslisten på nytt med finere buer.
 - **Lesing** skjer i en egen tråd med spinner. Feil vises som en tydelig melding på norsk, og
   panikk i leseren fanges.
+- **Kall fra Rust til Java** (filvelger, «Lagre som», tilbake-knapp, ikonfarge i systemlinjene)
+  går via en egen JNI-tråd med kø, ikke fra egui-tråden. egui-tråden behandler
+  livssyklus-hendelser som Androids UI-tråd venter på, så et JNI-kall derfra kan gi vranglås
+  (ANR). Aktiviteten hentes fra `AndroidApp`; `ndk_context` peker på Application-objektet.
 - **Android-delen** (`MainActivity.java`) tar imot filer fra intents og filvelgeren. Den kopierer
   filen til appens cache og gir stien til Rust. Den lagrer også PDF med «Lagre som», og forteller
   Rust hvor store statuslinjen og navigasjonslinjen er.
@@ -133,6 +137,20 @@ må signeres med samme nøkkel.
 manuell start. Den kjører testene, bygger APK for arm64-v8a, armeabi-v7a og x86_64 og laster
 opp **CAD-viser-debug-apk** som artefakt. Artefakter ligger under Actions → kjøringen →
 Artifacts.
+
+En egen jobb kjører deretter en **røyktest på Android-emulator** (x86_64, API 34, Pixel 6) med
+`scripts/emulator-smoke.sh`. Testen:
+
+- installerer debug-APK-en og starter appen
+- åpner `testdata/apartment-layout.dwg` via «Åpne med» (VIEW-intent)
+- prøver dobbelttrykk, sveip og rotasjon
+- trykker «Åpne» og sjekker at Androids filvelger vises
+- trykker tilbake og sjekker at appen legges i bakgrunnen
+
+Den feiler ved krasj, ANR, JNI-feil, eller hvis tegningen ikke blir lest og tegnet. Nedskalerte
+skjermbilder skrives i jobbloggen, og fullstørrelse og logcat lastes opp som artefaktet
+**roeyktest-skjermbilder**. Skriptet kan også kjøres mot en tilkoblet telefon:
+`scripts/emulator-smoke.sh android/app/build/outputs/apk/debug/app-debug.apk`.
 
 For en signert **release-APK** legger du inn disse under *Settings → Secrets and variables →
 Actions*:
