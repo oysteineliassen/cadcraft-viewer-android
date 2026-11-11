@@ -13,6 +13,9 @@ use crate::document::{self, Document, Orientation, Paper, PdfChoice};
 use crate::platform::{self, Event};
 use crate::view::Viewer;
 
+/// Ferdig PDF (filnavn og innhold) eller feilmelding.
+type ExportResult = Result<(String, Vec<u8>), String>;
+
 /// Skjermer som kan ligge over tegningen.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Panel {
@@ -42,7 +45,7 @@ pub struct ViewerApp {
     panel: Panel,
     dark: bool,
     pdf: PdfChoice,
-    exporting: Option<Receiver<Result<(String, Vec<u8>), String>>>,
+    exporting: Option<Receiver<ExportResult>>,
     toast: Option<(String, Instant)>,
     layer_filter: String,
 }

@@ -43,12 +43,12 @@ impl Camera {
         Camera { center: b.center(), scale: if s.is_finite() && s > 0.0 { s } else { 1.0 } }
     }
 
-    pub fn to_screen(&self, rect: egui::Rect, p: Vec2) -> egui::Pos2 {
+    pub fn to_screen(self, rect: egui::Rect, p: Vec2) -> egui::Pos2 {
         let c = rect.center();
         egui::pos2(c.x + ((p.x - self.center.x) * self.scale) as f32, c.y - ((p.y - self.center.y) * self.scale) as f32)
     }
 
-    pub fn to_world(&self, rect: egui::Rect, p: egui::Pos2) -> Vec2 {
+    pub fn to_world(self, rect: egui::Rect, p: egui::Pos2) -> Vec2 {
         let c = rect.center();
         Vec2::new(self.center.x + f64::from(p.x - c.x) / self.scale, self.center.y - f64::from(p.y - c.y) / self.scale)
     }
