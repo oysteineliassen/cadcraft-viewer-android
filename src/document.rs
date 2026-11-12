@@ -24,6 +24,36 @@ impl Document {
     }
 }
 
+/// Minne lesingen bruker per byte fil, målt med `examples/bigfile.rs` (en DWG på 8,8 MB med
+/// 116 000 objekter: 1,8 GB på topp, hvorav DWG→DXF 0,85 GB og DXF-tolking 1,3 GB; en DXF på
+/// 88 MB: 1,3 GB). Litt runde opp, siden tegninger varierer.
+const DWG_FACTOR: u64 = 220;
+const DXF_FACTOR: u64 = 17;
+/// Grunnforbruk for appen og visningen.
+const BASE_MEMORY: u64 = 150 << 20;
+
+/// Anslått minnebehov (byte) for å åpne filen, ut fra type og størrelse.
+pub fn estimate_memory(path: &Path) -> Option<u64> {
+    use std::io::Read;
+    let size = std::fs::metadata(path).ok()?.len();
+    let mut head = [0u8; 4];
+    let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
+    let factor = if n == 4 && &head == b"AC10" { DWG_FACTOR } else { DXF_FACTOR };
+    Some(size.saturating_mul(factor).saturating_add(BASE_MEMORY))
+}
+
+/// Byte som et menneskelig tall: «850 MB», «14 GB», «1,5 GB».
+pub fn human_bytes(b: u64) -> String {
+    let mb = b as f64 / 1_000_000.0;
+    if mb < 1000.0 {
+        format!("{} MB", mb.round())
+    } else if mb < 10_000.0 {
+        format!("{:.1} GB", mb / 1000.0).replace('.', ",")
+    } else {
+        format!("{} GB", (mb / 1000.0).round())
+    }
+}
+
 /// Les filen. Kjøres i en bakgrunnstråd; panikk i en leser blir til en feilmelding.
 pub fn load(path: &Path, name: &str) -> Result<Document, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Kunne ikke lese filen: {e}"))?;
@@ -221,6 +251,17 @@ mod tests {
             }
         }
         std::fs::write(tmp("apartment.pdf"), export_pdf(&doc.drawing, &Space::Model, &PdfChoice::default(), "apartment", extents(&doc.drawing, &Space::Model), Bounds2::default()).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn memory_estimate_follows_type_and_size() {
+        let dwg = estimate_memory(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/apartment.dwg"))).unwrap();
+        let dxf = estimate_memory(Path::new(APARTMENT)).unwrap();
+        assert_eq!(dwg, 14607 * DWG_FACTOR + BASE_MEMORY);
+        assert_eq!(dxf, 48769 * DXF_FACTOR + BASE_MEMORY);
+        assert_eq!(human_bytes(850_000_000), "850 MB");
+        assert_eq!(human_bytes(1_540_000_000), "1,5 GB");
+        assert_eq!(human_bytes(15_400_000_000), "15 GB");
     }
 
     #[test]

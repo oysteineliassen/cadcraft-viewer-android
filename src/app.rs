@@ -31,6 +31,8 @@ enum State {
     Empty,
     Loading { name: String, rx: Receiver<Result<Document, String>>, since: Instant },
     Failed { name: String, error: String },
+    /// Filen trenger trolig mer minne enn telefonen har. `need` og `have` i byte.
+    TooBig { path: PathBuf, name: String, need: u64, have: u64 },
     Open(Box<Opened>),
 }
 
@@ -66,6 +68,14 @@ impl ViewerApp {
             layer_filter: String::new(),
             first_frame_logged: false,
         };
+        // Ble appen stoppet mens en tegning ble lest forrige gang (typisk tomt for minne)?
+        if let Some(name) = take_loading_marker() {
+            log::warn!("appen stoppet under lesing av «{name}» forrige gang");
+            app.state = State::Failed {
+                name,
+                error: "CAD-viser ble stoppet mens denne tegningen ble lest forrige gang. Den er sannsynligvis for stor for minnet på denne enheten, eller skadet.\n\nPrøv å åpne den på en PC, eller be om en mindre utgave (for eksempel bare de lagene eller arkene du trenger, eller en PDF).".into(),
+            };
+        }
         if let Some((path, name)) = open {
             app.open(&cc.egui_ctx, path, name);
         }
@@ -73,9 +83,25 @@ impl ViewerApp {
     }
 
     fn open(&mut self, ctx: &egui::Context, path: PathBuf, name: String) {
+        let shown = if name.is_empty() { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { name.clone() };
+        // Er filen for stor for minnet? Da blir appen drept av Android uten feilmelding, så si fra
+        // først og la brukeren velge.
+        if let (Some(need), Some((avail, total))) = (document::estimate_memory(&path), platform::memory()) {
+            let have = avail.max(total / 2);
+            log::info!("«{shown}»: anslått minnebehov {}, ledig {}, totalt {}", document::human_bytes(need), document::human_bytes(avail), document::human_bytes(total));
+            if need > have {
+                self.panel = Panel::None;
+                self.state = State::TooBig { path, name: shown, need, have };
+                return;
+            }
+        }
+        self.load(ctx, path, name, shown);
+    }
+
+    fn load(&mut self, ctx: &egui::Context, path: PathBuf, name: String, shown: String) {
         let (tx, rx) = channel();
         let ctx = ctx.clone();
-        let shown = if name.is_empty() { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { name.clone() };
+        set_loading_marker(&shown);
         let spawned = std::thread::Builder::new()
             .name("load".into())
             // DWG-leseren kan bruke mye stakk på dypt nestede filer.
@@ -118,6 +144,7 @@ impl ViewerApp {
         if let State::Loading { rx, name, .. } = &self.state
             && let Ok(r) = rx.try_recv()
         {
+            clear_loading_marker();
             self.state = match r {
                 Ok(doc) => {
                     log::info!(
@@ -232,6 +259,48 @@ impl ViewerApp {
                 });
                 if again {
                     platform::pick_file();
+                }
+            }
+            State::TooBig { path, name, need, have } => {
+                let mut choice = 0;
+                ui.vertical_centered(|ui| {
+                    ui.add_space((rect.height() * 0.12).max(20.0));
+                    egui::Frame::new()
+                        .fill(if ui.visuals().dark_mode { Color32::from_rgb(70, 55, 20) } else { Color32::from_rgb(255, 243, 205) })
+                        .corner_radius(8.0)
+                        .inner_margin(20.0)
+                        .show(ui, |ui| {
+                            ui.set_max_width(560.0);
+                            ui.label(RichText::new("Tegningen er trolig for stor").heading().color(Color32::from_rgb(230, 160, 40)));
+                            ui.add_space(6.0);
+                            ui.label(RichText::new(name.as_str()).strong());
+                            ui.add_space(6.0);
+                            let size = std::fs::metadata(&*path).map(|m| document::human_bytes(m.len())).unwrap_or_default();
+                            ui.label(format!(
+                                "Filen er på {size}. Å åpne den krever anslagsvis {} minne, men enheten har omtrent {} tilgjengelig. Prøver du likevel, kan Android stoppe appen.",
+                                document::human_bytes(*need),
+                                document::human_bytes(*have)
+                            ));
+                            ui.add_space(6.0);
+                            ui.label("Tips: åpne den på en PC, eller be om en mindre utgave (for eksempel bare de lagene eller arkene du trenger, eller en PDF).");
+                        });
+                    ui.add_space(20.0);
+                    if ui.add(big_button("Åpne en annen fil")).clicked() {
+                        choice = 1;
+                    }
+                    ui.add_space(8.0);
+                    if ui.add(big_button("Prøv likevel")).clicked() {
+                        choice = 2;
+                    }
+                });
+                match choice {
+                    1 => platform::pick_file(),
+                    2 => {
+                        let (path, name) = (path.clone(), name.clone());
+                        let ctx = ui.ctx().clone();
+                        self.load(&ctx, path, name.clone(), name);
+                    }
+                    _ => {}
                 }
             }
             State::Open(o) => {
@@ -664,6 +733,34 @@ fn style(ctx: &egui::Context, dark: bool) {
         s.spacing.scroll.bar_width = 12.0;
         s.interaction.tooltip_delay = 0.8;
     });
+}
+
+/// Merke som ligger på disk mens en tegning leses. Finnes det ved oppstart, ble appen stoppet
+/// under lesing (typisk av Android fordi minnet tok slutt).
+fn loading_marker() -> Option<PathBuf> {
+    platform::data_dir().map(|d| d.join("leser.txt"))
+}
+
+fn set_loading_marker(name: &str) {
+    if let Some(p) = loading_marker() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(p, name);
+    }
+}
+
+fn clear_loading_marker() {
+    if let Some(p) = loading_marker() {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+fn take_loading_marker() -> Option<String> {
+    let p = loading_marker()?;
+    let name = std::fs::read_to_string(&p).ok()?;
+    let _ = std::fs::remove_file(p);
+    Some(name)
 }
 
 fn settings_file() -> Option<PathBuf> {

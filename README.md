@@ -18,6 +18,24 @@ tillatelser og bruker ikke nett.
 - «Om»-skjerm med opphavsrett og lisenser.
 - Norsk grensesnitt med store trykkflater og ingen kommandolinje.
 
+## Store tegninger
+
+Lesingen bruker mye minne, og det skjer inne i CADCraft-bibliotekene. Målt med
+`examples/bigfile.rs` på en DWG på 8,8 MB med 116 000 objekter:
+
+| Trinn | Minnetopp |
+|---|---|
+| DWG → DXF | 0,85 GB |
+| Tolking av DXF | 1,3 GB |
+| Til sammen | 1,8 GB, cirka 200× DWG-størrelsen |
+
+For DXF er det cirka 15× filstørrelsen.
+
+En DWG på 70 MB trenger dermed rundt 14 GB, og Android stopper appen uten varsel når minnet tar
+slutt. Appen anslår derfor minnebehovet før lesing. Er filen trolig for stor, får du en
+forklaring og valget «Prøv likevel». Blir appen stoppet under lesing, sier den fra neste gang den
+startes.
+
 ## Slik er appen bygget
 
 ```

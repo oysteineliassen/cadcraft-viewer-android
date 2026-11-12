@@ -60,6 +60,19 @@ pub fn insets() -> [f32; 4] {
     INSETS.lock().map(|i| *i).unwrap_or_default()
 }
 
+/// Ledig og totalt minne i byte (Linux og Android: /proc/meminfo). `None` der det ikke finnes.
+pub fn memory() -> Option<(u64, u64)> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let field = |name: &str| {
+        text.lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(|kb| kb * 1024)
+    };
+    Some((field("MemAvailable:")?, field("MemTotal:")?))
+}
+
 #[cfg(not(target_os = "android"))]
 mod imp {
     use super::{Event, push};

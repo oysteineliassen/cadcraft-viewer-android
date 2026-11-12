@@ -24,6 +24,7 @@ cadcraft-doc = { git = "https://github.com/storytold/cadcraft", rev = "e5021f017
 cadcraft-render = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
 cadcraft-geom = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
 cadcraft-color = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
+cadcraft-dwg = { git = "https://github.com/storytold/cadcraft", rev = "e5021f01753c5cf1d91985435d4391f40e309ece" }
 # Samme tiny-skia som cadcraft-render (Pixmap fra raster::render).
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
 log = "0.4"

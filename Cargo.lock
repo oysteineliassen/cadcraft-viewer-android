@@ -361,6 +361,7 @@ dependencies = [
  "android_logger",
  "cadcraft-color",
  "cadcraft-doc",
+ "cadcraft-dwg",
  "cadcraft-geom",
  "cadcraft-io",
  "cadcraft-render",
