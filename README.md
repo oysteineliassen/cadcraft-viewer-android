@@ -27,14 +27,18 @@ Lesingen bruker mye minne, og det skjer inne i CADCraft-bibliotekene. Målt med
 |---|---|
 | DWG → DXF | 0,85 GB |
 | Tolking av DXF | 1,3 GB |
-| Til sammen | 1,8 GB, cirka 200× DWG-størrelsen |
 
 For DXF er det cirka 15× filstørrelsen.
 
-En DWG på 70 MB trenger dermed rundt 14 GB, og Android stopper appen uten varsel når minnet tar
-slutt. Appen anslår derfor minnebehovet før lesing. Er filen trolig for stor, får du en
-forklaring og valget «Prøv likevel». Blir appen stoppet under lesing, sier den fra neste gang den
-startes.
+DWG → DXF kjøres derfor i en **egen prosess**: på Android `DwgService` (`android:process=":dwg"`),
+på desktop CADCraft sin `dwg_worker`. Minnet frigis når den er ferdig, og blir den stoppet
+fordi minnet tar slutt, viser appen en feilmelding i stedet for å forsvinne. Hovedappen leser
+DXF-en via minnekartlegging (`mmap`).
+
+Minnetoppen i appen ble 1,5 GB for testfilen (mot 1,8 GB i én prosess), altså cirka 170×
+DWG-størrelsen. Før lesing anslår appen behovet og sammenligner med ledig minne. Er filen
+trolig for stor, får du en forklaring og valget «Prøv likevel». Blir appen stoppet under
+lesing, sier den fra neste gang den startes.
 
 ## Slik er appen bygget
 

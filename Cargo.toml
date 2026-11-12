@@ -28,6 +28,9 @@ cadcraft-dwg = { git = "https://github.com/storytold/cadcraft", rev = "e5021f017
 # Samme tiny-skia som cadcraft-render (Pixmap fra raster::render).
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
 log = "0.4"
+# Minnekartlegging av DXF-filen fra DWG-konverteringen: sidene kan kastes og leses inn igjen av
+# kjernen, så de teller ikke som appens eget minne slik en Vec<u8> gjør.
+memmap2 = "0.9"
 # DWG-leser (MPL-2.0, brukt uendret via cadcraft-dwg). Låst til samme versjon som CADCraft
 # e5021f0: 0.6.7/0.6.8 leser enkelte skadede DWG-er som tomme uten varsel (CADCraft #800).
 acadrust = "=0.6.6"

@@ -130,6 +130,10 @@ fi
 if ! grep -q -E "bilde [0-9]+x[0-9]+ tegnet" "$OUT/logcat.txt"; then
   echo "::error::Tegningen ble ikke tegnet"; fail=1
 fi
+if ! grep -q "convertDwg ferdig: ok" "$OUT/logcat.txt"; then
+  echo "::error::DWG ble ikke konvertert i hjelpeprosessen (DwgService)"; fail=1
+fi
+grep -E "cadviewer-dwg|DwgService|convertDwg" "$OUT/logcat.txt" | tail -8 || true
 if grep -q -E "ANR in $PKG|Input dispatching timed out.*$PKG" "$OUT/logcat.txt"; then
   echo "::error::Appen svarte ikke (ANR)"; fail=1
 fi

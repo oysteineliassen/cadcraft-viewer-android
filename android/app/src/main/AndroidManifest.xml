@@ -78,5 +78,11 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
+
+        <!-- DWG → DXF i egen prosess, så minnet frigis etterpå og et krasj ikke stopper appen. -->
+        <service
+            android:name=".DwgService"
+            android:process=":dwg"
+            android:exported="false" />
     </application>
 </manifest>

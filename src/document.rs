@@ -25,20 +25,18 @@ impl Document {
 }
 
 /// Minne lesingen bruker per byte fil, målt med `examples/bigfile.rs` (en DWG på 8,8 MB med
-/// 116 000 objekter: 1,8 GB på topp, hvorav DWG→DXF 0,85 GB og DXF-tolking 1,3 GB; en DXF på
-/// 88 MB: 1,3 GB). Litt runde opp, siden tegninger varierer.
-const DWG_FACTOR: u64 = 220;
+/// 116 000 objekter: DWG→DXF 0,85 GB og DXF-tolking 1,3 GB; en DXF på 88 MB: 1,3 GB). DWG→DXF
+/// kjøres i en egen prosess, så toppen er det største av de to stegene, ikke summen. Litt runde
+/// opp, siden tegninger varierer.
+const DWG_FACTOR: u64 = 170;
 const DXF_FACTOR: u64 = 17;
 /// Grunnforbruk for appen og visningen.
 const BASE_MEMORY: u64 = 150 << 20;
 
 /// Anslått minnebehov (byte) for å åpne filen, ut fra type og størrelse.
 pub fn estimate_memory(path: &Path) -> Option<u64> {
-    use std::io::Read;
     let size = std::fs::metadata(path).ok()?.len();
-    let mut head = [0u8; 4];
-    let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
-    let factor = if n == 4 && &head == b"AC10" { DWG_FACTOR } else { DXF_FACTOR };
+    let factor = if is_dwg_file(path) { DWG_FACTOR } else { DXF_FACTOR };
     Some(size.saturating_mul(factor).saturating_add(BASE_MEMORY))
 }
 
@@ -56,20 +54,24 @@ pub fn human_bytes(b: u64) -> String {
 
 /// Les filen. Kjøres i en bakgrunnstråd; panikk i en leser blir til en feilmelding.
 pub fn load(path: &Path, name: &str) -> Result<Document, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("Kunne ikke lese filen: {e}"))?;
-    if bytes.is_empty() {
-        return Err("Filen er tom.".into());
-    }
     let parse_name = if name.is_empty() { path.to_string_lossy().into_owned() } else { name.to_owned() };
-    let result = std::panic::catch_unwind(|| cadcraft_io::read(&bytes, &parse_name));
-    let drawing = match result {
-        Ok(Ok(d)) => d,
-        Ok(Err(IoError::Unsupported(ext))) => {
-            let what = if ext.is_empty() { "denne filtypen".to_owned() } else { format!("«.{ext}»-filer") };
-            return Err(format!("Appen kan ikke åpne {what}. Bare DWG- og DXF-tegninger støttes."));
+    let display = if name.is_empty() { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { name.to_owned() };
+    let drawing = if is_dwg_file(path) {
+        match crate::platform::convert_dwg_elsewhere(path) {
+            // DWG → DXF er gjort i en egen prosess: les bare DXF-en her.
+            Some(converted) => {
+                let (dxf, notes) = converted?;
+                let mut d = read_mapped(&dxf, "konvertert.dxf");
+                let _ = std::fs::remove_file(&dxf);
+                if let Ok(d) = &mut d {
+                    d.read_notes = notes;
+                }
+                d?
+            }
+            None => read_mapped(path, &parse_name)?,
         }
-        Ok(Err(e)) => return Err(format!("Filen ser ikke ut til å være en gyldig DWG- eller DXF-tegning, eller den er skadet.\n\nDetaljer: {e}")),
-        Err(_) => return Err("Det oppstod en intern feil under lesing av filen. Den kan være skadet eller i et format som ikke støttes.".into()),
+    } else {
+        read_mapped(path, &parse_name)?
     };
     let mut spaces = vec![Space::Model];
     for l in drawing.paper_space_layouts() {
@@ -82,8 +84,69 @@ pub fn load(path: &Path, name: &str) -> Result<Document, String> {
         spaces.remove(0);
         spaces.push(Space::Model);
     }
-    let display = if name.is_empty() { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { name.to_owned() };
     Ok(Document { name: display, drawing: Arc::new(drawing), spaces })
+}
+
+/// Om filen starter som en DWG («AC10…»).
+pub fn is_dwg_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 4];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head == b"AC10"
+}
+
+/// Les en tegning fra fil. Filen minnekartlegges i stedet for å leses inn: sidene hører til
+/// filen, så kjernen kan kaste dem ved minnemangel og lese dem inn igjen.
+fn read_mapped(path: &Path, name: &str) -> Result<Drawing, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("Kunne ikke lese filen: {e}"))?;
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if len == 0 {
+        return Err("Filen er tom.".into());
+    }
+    // SAFETY: filen ligger i appens egen mappe eller er en kopi appen har laget, og endres ikke
+    // mens den leses. (Endres den likevel, kan innholdet bli feil, men det er bare bytes.)
+    let map = unsafe { memmap2::Mmap::map(&file) };
+    let owned;
+    let bytes: &[u8] = match &map {
+        Ok(m) => m,
+        Err(_) => {
+            owned = std::fs::read(path).map_err(|e| format!("Kunne ikke lese filen: {e}"))?;
+            &owned
+        }
+    };
+    match std::panic::catch_unwind(|| cadcraft_io::read(bytes, name)) {
+        Ok(Ok(d)) => Ok(d),
+        Ok(Err(IoError::Unsupported(ext))) => {
+            let what = if ext.is_empty() { "denne filtypen".to_owned() } else { format!("«.{ext}»-filer") };
+            Err(format!("Appen kan ikke åpne {what}. Bare DWG- og DXF-tegninger støttes."))
+        }
+        Ok(Err(e)) => Err(format!("Filen ser ikke ut til å være en gyldig DWG- eller DXF-tegning, eller den er skadet.\n\nDetaljer: {e}")),
+        Err(_) => Err("Det oppstod en intern feil under lesing av filen. Den kan være skadet eller i et format som ikke støttes.".into()),
+    }
+}
+
+/// DWG → DXF (det minnekrevende første steget), til filen `output`. Kjøres i en egen prosess på
+/// Android (DwgService), så minnet frigis når den er ferdig og et krasj ikke tar med seg appen.
+/// Merknader fra leseren skrives til `output` + «.notes», én per linje.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn convert_dwg(input: &Path, output: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(input).map_err(|e| format!("Kunne ikke lese filen: {e}"))?;
+    let result = std::panic::catch_unwind(|| cadcraft_dwg::decode(&bytes, cadcraft_dwg::Limits::DEFAULT));
+    drop(bytes);
+    let (dxf, notes) = match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Err(format!("Filen ser ikke ut til å være en gyldig DWG-tegning, eller den er skadet.\n\nDetaljer: {e}")),
+        Err(_) => return Err("Det oppstod en intern feil i DWG-leseren. Filen kan være skadet eller i en versjon som ikke støttes.".into()),
+    };
+    std::fs::write(output, &dxf).map_err(|e| format!("Kunne ikke skrive midlertidig fil: {e}"))?;
+    let _ = std::fs::write(notes_path(output), notes.join("\n"));
+    Ok(())
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn notes_path(dxf: &Path) -> std::path::PathBuf {
+    let mut p = dxf.as_os_str().to_owned();
+    p.push(".notes");
+    std::path::PathBuf::from(p)
 }
 
 /// Papirformat for PDF-eksport.
@@ -219,6 +282,24 @@ mod tests {
         assert_eq!(back.spaces.len(), doc.spaces.len());
         let b = extents(&back.drawing, &Space::Model);
         assert!(b.width() > 1000.0);
+    }
+
+    #[test]
+    fn dwg_converted_separately_reads_the_same() {
+        // Veien Android bruker: DWG → DXF-fil (i hjelpeprosessen), så DXF-en leses.
+        let dwg = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/apartment-layout.dwg"));
+        assert!(is_dwg_file(dwg));
+        let dxf = tmp("konvertert.dxf");
+        convert_dwg(dwg, &dxf).unwrap();
+        assert!(notes_path(&dxf).exists());
+        let split = read_mapped(&dxf, "konvertert.dxf").unwrap();
+        let direct = load(dwg, "apartment-layout.dwg").unwrap();
+        assert_eq!(split.model.len(), direct.drawing.model.len());
+        assert_eq!(split.layers.len(), direct.drawing.layers.len());
+        assert_eq!(split.layouts.len(), direct.drawing.layouts.len());
+        let bad = tmp("ikke.dwg");
+        std::fs::write(&bad, b"AC1032 tull").unwrap();
+        assert!(convert_dwg(&bad, &tmp("ikke.dxf")).unwrap_err().contains("DWG"));
     }
 
     #[test]

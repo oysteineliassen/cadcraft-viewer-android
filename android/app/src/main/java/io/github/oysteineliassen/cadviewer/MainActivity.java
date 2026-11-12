@@ -2,12 +2,20 @@ package io.github.oysteineliassen.cadviewer;
 
 import android.app.NativeActivity;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.ServiceConnection;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.View;
@@ -47,6 +55,68 @@ public class MainActivity extends NativeActivity {
     private native void nativeOpenFile(String path, String name);
     private native void nativeMessage(String text);
     private native void nativeInsets(int left, int top, int right, int bottom);
+    private native void nativeDwgDone(boolean ok, String message);
+
+    /**
+     * Kalles fra Rust: DWG `input` → DXF `output` i hjelpeprosessen DwgService. Svaret går til
+     * nativeDwgDone, også når prosessen blir stoppet underveis (typisk for lite minne).
+     */
+    public void convertDwg(final String input, final String output) {
+        Log.i(TAG, "convertDwg " + input);
+        runOnUiThread(() -> {
+            final boolean[] done = {false};
+            final ServiceConnection[] conn = new ServiceConnection[1];
+            final Messenger replies = new Messenger(new Handler(Looper.getMainLooper(), msg -> {
+                if (msg.what != DwgService.MSG_DONE || done[0]) return false;
+                done[0] = true;
+                String error = msg.getData().getString("error");
+                Log.i(TAG, "convertDwg ferdig: " + (error == null ? "ok" : error));
+                nativeDwgDone(error == null, error);
+                try { unbindService(conn[0]); } catch (Exception ignored) { }
+                return true;
+            }));
+            conn[0] = new ServiceConnection() {
+                @Override
+                public void onServiceConnected(ComponentName name, IBinder binder) {
+                    Message m = Message.obtain(null, DwgService.MSG_CONVERT);
+                    Bundle b = new Bundle();
+                    b.putString("input", input);
+                    b.putString("output", output);
+                    m.setData(b);
+                    m.replyTo = replies;
+                    try {
+                        new Messenger(binder).send(m);
+                    } catch (Exception e) {
+                        fail("Kunne ikke starte DWG-leseren: " + e.getMessage());
+                    }
+                }
+
+                @Override
+                public void onServiceDisconnected(ComponentName name) {
+                    fail("DWG-leseren ble stoppet før den var ferdig. Tegningen er sannsynligvis for stor for minnet på denne enheten.");
+                }
+
+                @Override
+                public void onBindingDied(ComponentName name) {
+                    onServiceDisconnected(name);
+                }
+
+                private void fail(String message) {
+                    if (done[0]) return;
+                    done[0] = true;
+                    Log.w(TAG, "convertDwg: " + message);
+                    nativeDwgDone(false, message);
+                    try { unbindService(this); } catch (Exception ignored) { }
+                }
+            };
+            boolean ok = bindService(new Intent(this, DwgService.class), conn[0],
+                    Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
+            if (!ok && !done[0]) {
+                done[0] = true;
+                nativeDwgDone(false, "Kunne ikke starte DWG-leseren.");
+            }
+        });
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

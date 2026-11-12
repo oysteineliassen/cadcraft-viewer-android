@@ -115,6 +115,12 @@ mod imp {
     /// Tilbake-knappen når ingenting annet er åpent: ingenting å gjøre på desktop.
     pub fn leave() {}
 
+    /// På desktop kjører CADCraft selv DWG-leseren i en egen prosess (`dwg_worker`, slått på i
+    /// main.rs), så her gjøres ingenting ekstra.
+    pub fn convert_dwg_elsewhere(_input: &std::path::Path) -> Option<Result<(PathBuf, Vec<String>), String>> {
+        None
+    }
+
     pub fn set_light_bars(_light: bool) {}
 }
 
@@ -231,6 +237,80 @@ mod imp {
         call_activity(move |env, a| env.call_method(a, "setLightBars", "(Z)V", &[JValue::Bool(u8::from(light))]).map(|_| ()));
     }
 
+    /// Svar fra hjelpeprosessen som gjør DWG → DXF (MainActivity.nativeDwgDone).
+    static DWG_REPLY: Mutex<Option<std::sync::mpsc::Sender<Result<(), String>>>> = Mutex::new(None);
+
+    /// DWG → DXF i hjelpeprosessen DwgService (android:process=":dwg"). Venter til den er ferdig.
+    /// Gir stien til DXF-filen og leserens merknader.
+    pub fn convert_dwg_elsewhere(input: &std::path::Path) -> Option<Result<(PathBuf, Vec<String>), String>> {
+        let dir = data_dir()?;
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("konvertert.dxf");
+        let _ = std::fs::remove_file(&output);
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Ok(mut r) = DWG_REPLY.lock() {
+            *r = Some(tx);
+        }
+        let (i, o) = (input.to_string_lossy().into_owned(), output.to_string_lossy().into_owned());
+        log::info!("DWG → DXF i egen prosess: {i}");
+        call_activity(move |env, a| {
+            let i = env.new_string(&i)?;
+            let o = env.new_string(&o)?;
+            env.call_method(a, "convertDwg", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&i), JValue::Object(&o)])
+                .map(|_| ())
+        });
+        let result = match rx.recv_timeout(std::time::Duration::from_secs(30 * 60)) {
+            Ok(r) => r,
+            Err(_) => Err("DWG-leseren svarte ikke.".into()),
+        };
+        Some(result.map(|()| {
+            let notes_file = crate::document::notes_path(&output);
+            let notes = std::fs::read_to_string(&notes_file).unwrap_or_default();
+            let _ = std::fs::remove_file(notes_file);
+            (output, notes.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect())
+        }))
+    }
+
+    /// Fra MainActivity.java: hjelpeprosessen er ferdig (eller ble stoppet).
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_io_github_oysteineliassen_cadviewer_MainActivity_nativeDwgDone<'l>(
+        mut env: JNIEnv<'l>,
+        _this: JObject<'l>,
+        ok: jni::sys::jboolean,
+        message: JString<'l>,
+    ) {
+        let message = if message.is_null() { String::new() } else { string(&mut env, &message) };
+        let result = if ok != 0 { Ok(()) } else { Err(message) };
+        if let Some(tx) = DWG_REPLY.lock().ok().and_then(|mut r| r.take()) {
+            let _ = tx.send(result);
+        }
+    }
+
+    /// I hjelpeprosessen (DwgService.java): gjør DWG → DXF. Gir null ved suksess, ellers
+    /// feilmeldingen.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_io_github_oysteineliassen_cadviewer_DwgService_nativeConvert<'l>(
+        mut env: JNIEnv<'l>,
+        _class: jni::objects::JClass<'l>,
+        input: JString<'l>,
+        output: JString<'l>,
+    ) -> jni::sys::jstring {
+        android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("cadviewer-dwg"));
+        let input = string(&mut env, &input);
+        let output = string(&mut env, &output);
+        let t = std::time::Instant::now();
+        match crate::document::convert_dwg(std::path::Path::new(&input), std::path::Path::new(&output)) {
+            Ok(()) => {
+                log::info!("DWG → DXF ferdig på {} ms", t.elapsed().as_millis());
+                std::ptr::null_mut()
+            }
+            Err(e) => {
+                log::warn!("DWG → DXF feilet: {e}");
+                env.new_string(e).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+            }
+        }
+    }
+
     fn string(env: &mut JNIEnv, s: &JString) -> String {
         env.get_string(s).map(String::from).unwrap_or_default()
     }
@@ -273,7 +353,7 @@ mod imp {
     }
 }
 
-pub use imp::{data_dir, leave, pick_file, save_pdf, set_light_bars};
+pub use imp::{convert_dwg_elsewhere, data_dir, leave, pick_file, save_pdf, set_light_bars};
 
 #[cfg(target_os = "android")]
 pub use imp::{DATA_DIR, set_activity};

@@ -369,6 +369,7 @@ dependencies = [
  "env_logger",
  "jni 0.21.1",
  "log",
+ "memmap2",
  "rfd",
  "tiny-skia",
  "winit",
