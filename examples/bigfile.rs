@@ -7,6 +7,10 @@ fn rss_mb() -> u64 {
     std::fs::read_to_string("/proc/self/status").ok().and_then(|s| s.lines().find(|l| l.starts_with("VmHWM")).and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())).unwrap_or(0) / 1024
 }
 
+fn rss_now() -> u64 {
+    std::fs::read_to_string("/proc/self/status").ok().and_then(|s| s.lines().find(|l| l.starts_with("VmRSS")).and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())).unwrap_or(0) / 1024
+}
+
 fn cadcraft_dwg_is(b: &[u8]) -> bool { b.starts_with(b"AC10") }
 
 fn main() {
@@ -40,7 +44,9 @@ fn main() {
             let t = Instant::now();
             let bytes = std::fs::read(&a[2]).unwrap();
             let d = cadcraft_io::read(&bytes, &a[2]).unwrap();
-            println!("lest: {} objekter på {:?}, maks minne {} MB", d.model.len(), t.elapsed(), rss_mb());
+            drop(bytes);
+            println!("lest: {} objekter på {:?}, maks minne {} MB, beholdt etterpå {} MB", d.model.len(), t.elapsed(), rss_mb(), rss_now());
+            let bytes = Vec::<u8>::new();
             if cadcraft_dwg_is(&bytes) {
                 let (dxf, _) = cadcraft_dwg::decode(&bytes, cadcraft_dwg::Limits::DEFAULT).unwrap();
                 println!("DWG→DXF: {} MB DXF", dxf.len() / 1_000_000);
